@@ -8,18 +8,22 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AccountStatus, RoleName } from '../generated/prisma/client';
+import { ResendService } from '../common/integrations/resend.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
-import { hashPassword, verifyPassword } from './password';
+import { hashPassword, verifyPassword } from './utils/password';
+import { createPasswordResetEmail } from './utils/password-reset-email';
+import { toAuthUserResponse } from './utils/to-auth-user-response';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly resendService: ResendService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -72,7 +76,7 @@ export class AuthService {
 
     return {
       message: 'Pendaftaran berhasil. Akun menunggu persetujuan HR.',
-      user: this.toPublicUser(user),
+      user: toAuthUserResponse(user),
     };
   }
 
@@ -117,7 +121,7 @@ export class AuthService {
 
     return {
       accessToken,
-      user: this.toPublicUser(user),
+      user: toAuthUserResponse(user),
     };
   }
 
@@ -146,17 +150,28 @@ export class AuthService {
     });
 
     if (user) {
-      await this.jwtService.signAsync(
+      const token = await this.jwtService.signAsync(
         { sub: user.id, purpose: 'password-reset' },
         {
           secret: this.getRequiredSecret('RESET_PASSWORD_SECRET'),
           expiresIn: '15m',
         },
       );
+      const frontendUrl = this.getRequiredEnvironment('FRONTEND_URL');
+      const resetUrl = new URL('/reset-password', frontendUrl);
+      resetUrl.searchParams.set('token', token);
+
+      const resetUrlString = resetUrl.toString();
+      await this.resendService.sendEmail({
+        to: user.email,
+        subject: 'Reset Password LaKarya',
+        html: createPasswordResetEmail(user.name, resetUrlString),
+        text: `Halo ${user.name}, buka link berikut untuk membuat password baru. Link berlaku selama 15 menit: ${resetUrlString}`,
+      });
     }
 
     return {
-      message: 'Permintaan reset password berhasil diproses.',
+      message: 'Link reset password telah dikirim.',
     };
   }
 
@@ -167,6 +182,10 @@ export class AuthService {
 
     if (dto.password !== dto.repeatPassword) {
       throw new BadRequestException('Ulangi password tidak sama.');
+    }
+
+    if (dto.password.length < 6) {
+      throw new BadRequestException('Password minimal 6 karakter.');
     }
 
     try {
@@ -215,6 +234,10 @@ export class AuthService {
     if (dto.password !== dto.repeatPassword) {
       throw new BadRequestException('Ulangi password tidak sama.');
     }
+
+    if (dto.password.length < 6) {
+      throw new BadRequestException('Password minimal 6 karakter.');
+    }
   }
 
   private ensureUserCanLogin(status: AccountStatus) {
@@ -245,23 +268,14 @@ export class AuthService {
     return secret;
   }
 
-  private toPublicUser(user: {
-    id: number;
-    employeeNumber: string;
-    name: string;
-    email: string;
-    accountStatus: AccountStatus;
-    department: { id: number; name: string };
-    role: { name: RoleName };
-  }) {
-    return {
-      id: user.id,
-      employeeNumber: user.employeeNumber,
-      name: user.name,
-      email: user.email,
-      accountStatus: user.accountStatus,
-      department: user.department,
-      role: user.role.name,
-    };
+  private getRequiredEnvironment(name: string) {
+    const value = process.env[name];
+
+    if (!value) {
+      throw new Error(`${name} wajib diisi.`);
+    }
+
+    return value;
   }
+
 }

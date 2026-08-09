@@ -13,9 +13,9 @@ export class RegisterDto {
   @ApiProperty({ example: 'Information Technology' })
   department!: string;
 
-  @ApiProperty({ example: 'password-rahasia' })
+  @ApiProperty({ example: 'password-rahasia', minLength: 6 })
   password!: string;
 
-  @ApiProperty({ example: 'password-rahasia' })
+  @ApiProperty({ example: 'password-rahasia', minLength: 6 })
   repeatPassword!: string;
 }
