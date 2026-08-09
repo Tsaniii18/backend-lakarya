@@ -1,7 +1,6 @@
 import {
   AccountStatus,
   Prisma,
-  RoleName,
 } from '../generated/prisma/client';
 import {
   BadRequestException,
@@ -12,10 +11,12 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { hashPassword, verifyPassword } from '../auth/password';
+import { hashPassword, verifyPassword } from '../auth/utils/password';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ListUsersQueryDto } from './dto/list-users-query.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { parsePositiveNumber } from './utils/parse-positive-number';
+import { toUserResponse } from './utils/to-user-response';
 
 @Injectable()
 export class UsersService {
@@ -23,7 +24,7 @@ export class UsersService {
 
   async getProfile(userId: number) {
     const user = await this.findUserWithRelations(userId);
-    return this.toPublicUser(user);
+    return toUserResponse(user);
   }
 
   async updateProfile(userId: number, dto: UpdateProfileDto) {
@@ -61,7 +62,7 @@ export class UsersService {
 
     return {
       message: 'Profil berhasil diubah.',
-      user: this.toPublicUser(user),
+      user: toUserResponse(user),
     };
   }
 
@@ -72,6 +73,10 @@ export class UsersService {
 
     if (dto.newPassword !== dto.repeatNewPassword) {
       throw new BadRequestException('Ulangi password baru tidak sama.');
+    }
+
+    if (dto.newPassword.length < 6) {
+      throw new BadRequestException('Password baru minimal 6 karakter.');
     }
 
     const user = await this.prisma.user.findUnique({
@@ -103,8 +108,8 @@ export class UsersService {
   }
 
   async listUsers(query: ListUsersQueryDto) {
-    const page = this.parsePositiveNumber(query.page, 1);
-    const limit = this.parsePositiveNumber(query.limit, 10);
+    const page = parsePositiveNumber(query.page, 1);
+    const limit = parsePositiveNumber(query.limit, 10);
     const status = this.parseAccountStatus(query.status);
     const allowedSorts = [
       'name',
@@ -159,7 +164,7 @@ export class UsersService {
     ]);
 
     return {
-      data: users.map((user) => this.toPublicUser(user)),
+      data: users.map(toUserResponse),
       meta: {
         page,
         limit,
@@ -193,7 +198,7 @@ export class UsersService {
 
     return {
       message: 'User berhasil disetujui.',
-      user: this.toPublicUser(updatedUser),
+      user: toUserResponse(updatedUser),
     };
   }
 
@@ -223,7 +228,7 @@ export class UsersService {
 
     return {
       message: 'User berhasil ditangguhkan.',
-      user: this.toPublicUser(updatedUser),
+      user: toUserResponse(updatedUser),
     };
   }
 
@@ -253,7 +258,7 @@ export class UsersService {
 
     return {
       message: 'User berhasil ditolak.',
-      user: this.toPublicUser(updatedUser),
+      user: toUserResponse(updatedUser),
     };
   }
 
@@ -278,7 +283,7 @@ export class UsersService {
 
     return {
       message: 'User berhasil diaktifkan kembali.',
-      user: this.toPublicUser(updatedUser),
+      user: toUserResponse(updatedUser),
     };
   }
 
@@ -306,11 +311,6 @@ export class UsersService {
     }
   }
 
-  private parsePositiveNumber(value: string | undefined, fallback: number) {
-    const number = Number(value);
-    return Number.isInteger(number) && number > 0 ? number : fallback;
-  }
-
   private parseAccountStatus(value?: string) {
     if (!value) return undefined;
 
@@ -321,29 +321,4 @@ export class UsersService {
     return value as AccountStatus;
   }
 
-  private toPublicUser(user: {
-    id: number;
-    employeeNumber: string;
-    name: string;
-    email: string;
-    accountStatus: AccountStatus;
-    profilePictureUrl: string | null;
-    createdAt: Date;
-    updatedAt: Date;
-    department: { id: number; name: string };
-    role: { name: RoleName };
-  }) {
-    return {
-      id: user.id,
-      employeeNumber: user.employeeNumber,
-      name: user.name,
-      email: user.email,
-      accountStatus: user.accountStatus,
-      profilePictureUrl: user.profilePictureUrl,
-      department: user.department,
-      role: user.role.name,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
-    };
-  }
 }

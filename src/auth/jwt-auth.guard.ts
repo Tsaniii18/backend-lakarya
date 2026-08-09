@@ -9,6 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import { AccountStatus } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedRequest, AuthenticatedUser } from './auth.types';
+import { extractBearerToken } from './utils/extract-bearer-token';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -19,7 +20,7 @@ export class JwtAuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext) {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
-    const token = this.extractToken(request.headers.authorization);
+    const token = extractBearerToken(request.headers.authorization);
     const secret = process.env.JWT_SECRET;
 
     if (!token || !secret) {
@@ -56,12 +57,5 @@ export class JwtAuthGuard implements CanActivate {
     } catch {
       throw new UnauthorizedException('Sesi tidak valid atau telah berakhir.');
     }
-  }
-
-  private extractToken(authorization?: string | string[]) {
-    if (!authorization || Array.isArray(authorization)) return undefined;
-
-    const [type, token] = authorization.split(' ');
-    return type === 'Bearer' ? token : undefined;
   }
 }
