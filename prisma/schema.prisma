@@ -1,0 +1,273 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+enum RoleName {
+  STAF
+  MANAJER
+}
+
+enum AccountStatus {
+  MENUNGGU
+  AKTIF
+  DITANGGUHKAN
+  DITOLAK
+}
+
+enum RequestType {
+  CUTI
+  IZIN
+  PENGGANTIAN_BIAYA
+}
+
+enum RequestStatus {
+  MENUNGGU
+  DISETUJUI
+  DITOLAK
+  DIBATALKAN
+}
+
+enum ApprovalStatus {
+  MENUNGGU
+  DISETUJUI
+  DITOLAK
+}
+
+enum ComplaintStatus {
+  TERBUKA
+  DIPROSES
+  SELESAI
+  DITUTUP
+}
+
+enum AttachmentType {
+  PENGAJUAN
+  KELUHAN
+}
+
+enum LeaveType {
+  TAHUNAN
+  KHUSUS
+}
+
+enum PermissionType {
+  HARIAN
+  JAM
+}
+
+enum ExpenseType {
+  TRANSPORTASI
+  KONSUMSI
+  OPERASIONAL
+  LAINNYA
+}
+
+enum ComplaintCategory {
+  PERORANGAN
+  FASILITAS
+  LAINNYA
+}
+
+model Role {
+  id          Int      @id @default(autoincrement())
+  name        RoleName @unique
+  description String?  @db.VarChar(255)
+  users       User[]
+
+  @@map("roles")
+}
+
+model Department {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique @db.VarChar(100)
+  description String? @db.VarChar(255)
+  users       User[]
+
+  @@map("departments")
+}
+
+model User {
+  id               Int           @id @default(autoincrement())
+  departmentId     Int           @map("department_id")
+  roleId           Int           @map("role_id")
+  employeeNumber   String        @unique @map("employee_number") @db.VarChar(50)
+  name             String        @db.VarChar(150)
+  email            String        @unique @db.VarChar(191)
+  passwordHash     String        @map("password_hash") @db.VarChar(255)
+  accountStatus    AccountStatus @default(MENUNGGU) @map("account_status")
+  profilePictureUrl String?       @map("profile_pict_url") @db.VarChar(500)
+  createdAt        DateTime      @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt        DateTime      @updatedAt @map("updated_at") @db.DateTime(3)
+  department       Department    @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  role             Role          @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  sessions         UserSession[]
+  leaveBalances    LeaveBalance[]
+  requests         Request[]
+  approvals        RequestApproval[]
+  complaints       Complaint[]   @relation("ComplaintReporter")
+  handledComplaints Complaint[]   @relation("ComplaintHandler")
+
+  @@index([departmentId])
+  @@index([roleId])
+  @@map("users")
+}
+
+model UserSession {
+  id        Int       @id @default(autoincrement())
+  userId    Int       @map("user_id")
+  ip        String?   @db.VarChar(45)
+  device    String?   @db.VarChar(150)
+  agent     String?   @db.VarChar(500)
+  tokenHash String    @map("token_hash") @db.VarChar(255)
+  createdAt DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+  revokedAt DateTime? @map("revoked_at") @db.DateTime(3)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@map("users_session")
+}
+
+model LeaveBalance {
+  id           Int      @id @default(autoincrement())
+  employeeId   Int      @map("employee_id")
+  year         Int
+  totalDays    Int      @map("total_days")
+  reservedDays Int      @default(0) @map("reserved_days")
+  usedDays     Int      @default(0) @map("used_days")
+  createdAt    DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+  employee     User     @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId, year])
+  @@map("leaves_balance")
+}
+
+model Request {
+  id           Int                  @id @default(autoincrement())
+  requesterId  Int                  @map("requester_id")
+  type         RequestType
+  status       RequestStatus        @default(MENUNGGU)
+  createdAt    DateTime             @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt    DateTime             @updatedAt @map("updated_at") @db.DateTime(3)
+  completedAt  DateTime?            @map("completed_at") @db.DateTime(3)
+  requester    User                 @relation(fields: [requesterId], references: [id], onDelete: Restrict)
+  leaveRequest LeaveRequest?
+  permissionRequest PermissionRequest?
+  reimbursementRequest ReimbursementRequest?
+  approvals    RequestApproval[]
+  attachments  AttachmentFile[]
+
+  @@index([requesterId])
+  @@map("requests")
+}
+
+model LeaveRequest {
+  id        Int       @id @default(autoincrement())
+  requestId Int       @unique @map("request_id")
+  leaveType LeaveType @map("leave_type")
+  startDate DateTime  @map("start_date") @db.Date
+  endDate   DateTime  @map("end_date") @db.Date
+  reason    String    @db.Text
+  createdAt DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+  request   Request   @relation(fields: [requestId], references: [id], onDelete: Restrict)
+
+  @@map("leave_requests")
+}
+
+model PermissionRequest {
+  id             Int            @id @default(autoincrement())
+  requestId      Int            @unique @map("request_id")
+  permissionType PermissionType @map("permission_type")
+  startDate      DateTime       @map("start_date") @db.Date
+  endDate        DateTime       @map("end_date") @db.Date
+  totalDays      Decimal        @map("total_days") @db.Decimal(5, 2)
+  startTime      DateTime?      @map("start_time") @db.Time(0)
+  endTime        DateTime?      @map("end_time") @db.Time(0)
+  reason         String         @db.Text
+  createdAt      DateTime       @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.DateTime(3)
+  request        Request        @relation(fields: [requestId], references: [id], onDelete: Restrict)
+
+  @@map("permission_requests")
+}
+
+model ReimbursementRequest {
+  id            Int         @id @default(autoincrement())
+  requestId     Int         @unique @map("request_id")
+  expenseType   ExpenseType @map("expense_type")
+  expenseDate   DateTime    @map("expense_date") @db.Date
+  expenseAmount Decimal     @map("expense_amount") @db.Decimal(14, 2)
+  description   String      @db.Text
+  createdAt     DateTime    @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt     DateTime    @updatedAt @map("updated_at") @db.DateTime(3)
+  request       Request     @relation(fields: [requestId], references: [id], onDelete: Restrict)
+
+  @@map("reimbursement_requests")
+}
+
+model RequestApproval {
+  id         Int            @id @default(autoincrement())
+  requestId  Int            @map("request_id")
+  approverId Int            @map("approver_id")
+  stepOrder  Int            @map("step_order")
+  status     ApprovalStatus @default(MENUNGGU)
+  reviewNote String?        @map("review_note") @db.Text
+  createdAt  DateTime       @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt  DateTime       @updatedAt @map("updated_at") @db.DateTime(3)
+  reviewedAt DateTime?      @map("reviewed_at") @db.DateTime(3)
+  request    Request        @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  approver   User           @relation(fields: [approverId], references: [id], onDelete: Restrict)
+
+  @@unique([requestId, approverId])
+  @@unique([requestId, stepOrder])
+  @@index([approverId])
+  @@map("request_approvals")
+}
+
+model Complaint {
+  id             Int               @id @default(autoincrement())
+  reporterId     Int               @map("reporter_id")
+  handlerId      Int?              @map("handler_id")
+  subject        String            @db.VarChar(191)
+  category       ComplaintCategory
+  description    String            @db.Text
+  status         ComplaintStatus   @default(TERBUKA)
+  resolutionNote String?           @map("resolution_note") @db.Text
+  createdAt      DateTime          @default(now()) @map("created_at") @db.DateTime(3)
+  reviewedAt     DateTime?         @map("reviewed_at") @db.DateTime(3)
+  updatedAt      DateTime          @updatedAt @map("updated_at") @db.DateTime(3)
+  reporter       User              @relation("ComplaintReporter", fields: [reporterId], references: [id], onDelete: Restrict)
+  handler        User?             @relation("ComplaintHandler", fields: [handlerId], references: [id], onDelete: Restrict)
+  attachments    AttachmentFile[]
+
+  @@index([reporterId])
+  @@index([handlerId])
+  @@map("complaints")
+}
+
+model AttachmentFile {
+  id             Int            @id @default(autoincrement())
+  complaintId    Int?           @map("complaint_id")
+  requestId      Int?           @map("request_id")
+  cdnPublicId    String         @map("cdn_public_id") @db.VarChar(255)
+  fileUrl        String         @map("file_url") @db.VarChar(500)
+  fileName       String         @map("file_name") @db.VarChar(255)
+  mimeType       String         @map("mime_type") @db.VarChar(100)
+  sizeByte       Int            @map("size_byte")
+  attachmentType AttachmentType @map("attachment_type")
+  createdAt      DateTime       @default(now()) @map("created_at") @db.DateTime(3)
+  complaint      Complaint?     @relation(fields: [complaintId], references: [id], onDelete: Restrict)
+  request        Request?       @relation(fields: [requestId], references: [id], onDelete: Restrict)
+
+  @@index([complaintId])
+  @@index([requestId])
+  @@map("attachment_files")
+}
