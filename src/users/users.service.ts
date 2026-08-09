@@ -12,15 +12,25 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { hashPassword, verifyPassword } from '../auth/utils/password';
+import { CloudflareR2Service } from '../common/integrations/cloudflare-r2.service';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ListUsersQueryDto } from './dto/list-users-query.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { parsePositiveNumber } from './utils/parse-positive-number';
 import { toUserResponse } from './utils/to-user-response';
 
+export interface ProfilePictureFile {
+  buffer: Buffer;
+  mimetype: string;
+  size: number;
+}
+
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cloudflareR2Service: CloudflareR2Service,
+  ) {}
 
   async getProfile(userId: number) {
     const user = await this.findUserWithRelations(userId);
@@ -104,6 +114,85 @@ export class UsersService {
 
     return {
       message: 'Password berhasil diubah. Silakan masuk kembali.',
+    };
+  }
+
+  async updateProfilePicture(userId: number, file?: ProfilePictureFile) {
+    if (!file) {
+      throw new BadRequestException('Foto profil wajib dipilih.');
+    }
+
+    const extensions: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+    };
+    const extension = extensions[file.mimetype];
+
+    if (!extension) {
+      throw new BadRequestException(
+        'Format foto harus berupa JPEG, PNG, atau WebP.',
+      );
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      throw new BadRequestException('Ukuran foto maksimal 2 MB.');
+    }
+
+    const objectKey = `users/${userId}/profile/profile-${Date.now()}.${extension}`;
+    const profilePictureUrl = await this.cloudflareR2Service.uploadObject(
+      objectKey,
+      file.buffer,
+      file.mimetype,
+    );
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: { profilePictureUrl },
+      include: {
+        department: true,
+        role: true,
+      },
+    });
+
+    return {
+      message: 'Foto profil berhasil diperbarui.',
+      user: toUserResponse(user),
+    };
+  }
+
+  async getProfilePicture(userId: number) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { profilePictureUrl: true },
+    });
+
+    if (!user?.profilePictureUrl) {
+      throw new NotFoundException('Foto profil belum tersedia.');
+    }
+
+    return this.cloudflareR2Service.getObject(user.profilePictureUrl);
+  }
+
+  async deleteProfilePicture(userId: number) {
+    const user = await this.findUserWithRelations(userId);
+
+    if (!user.profilePictureUrl) {
+      throw new BadRequestException('Foto profil belum tersedia.');
+    }
+
+    await this.cloudflareR2Service.deleteObject(user.profilePictureUrl);
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: { profilePictureUrl: null },
+      include: {
+        department: true,
+        role: true,
+      },
+    });
+
+    return {
+      message: 'Foto profil berhasil dihapus.',
+      user: toUserResponse(updatedUser),
     };
   }
 
