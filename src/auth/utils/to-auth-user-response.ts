@@ -6,6 +6,7 @@ export function toAuthUserResponse(user: {
   name: string;
   email: string;
   accountStatus: AccountStatus;
+  profilePictureUrl: string | null;
   department: { id: number; name: string };
   role: { name: RoleName };
 }) {
@@ -15,6 +16,7 @@ export function toAuthUserResponse(user: {
     name: user.name,
     email: user.email,
     accountStatus: user.accountStatus,
+    profilePictureUrl: user.profilePictureUrl,
     department: user.department,
     role: user.role.name,
   };
