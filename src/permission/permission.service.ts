@@ -9,6 +9,7 @@ import {
   RequestStatus,
   RequestType,
 } from '../generated/prisma/client';
+import { ApprovalService } from '../approval/approval.service';
 import { ListRequestsQueryDto } from '../leave/dto/list-requests-query.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { parsePositiveNumber } from '../users/utils/parse-positive-number';
@@ -16,7 +17,10 @@ import { CreatePermissionDto } from './dto/create-permission.dto';
 
 @Injectable()
 export class PermissionService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly approvalService: ApprovalService,
+  ) {}
 
   async create(userId: number, dto: CreatePermissionDto) {
     const permissionType = this.parsePermissionType(dto.permissionType);
@@ -62,23 +66,43 @@ export class PermissionService {
       }
     }
 
-    const request = await this.prisma.request.create({
-      data: {
-        requesterId: userId,
-        type: RequestType.IZIN,
-        permissionRequest: {
-          create: {
-            permissionType,
-            startDate,
-            endDate,
-            totalDays,
-            startTime,
-            endTime,
-            reason,
+    const request = await this.prisma.$transaction(async (transaction) => {
+      const createdRequest = await transaction.request.create({
+        data: {
+          requesterId: userId,
+          type: RequestType.IZIN,
+          permissionRequest: {
+            create: {
+              permissionType,
+              startDate,
+              endDate,
+              totalDays,
+              startTime,
+              endTime,
+              reason,
+            },
           },
         },
-      },
-      include: { permissionRequest: true, attachments: true },
+        select: { id: true },
+      });
+      await this.approvalService.generateForRequest(
+        createdRequest.id,
+        userId,
+        transaction,
+      );
+      return transaction.request.findUniqueOrThrow({
+        where: { id: createdRequest.id },
+        include: {
+          permissionRequest: true,
+          attachments: true,
+          approvals: {
+            include: {
+              approver: { include: { role: true, department: true } },
+            },
+            orderBy: { stepOrder: 'asc' },
+          },
+        },
+      });
     });
 
     return {
@@ -130,7 +154,16 @@ export class PermissionService {
         requesterId: userId,
         type: RequestType.IZIN,
       },
-      include: { permissionRequest: true, attachments: true },
+      include: {
+        permissionRequest: true,
+        attachments: true,
+        approvals: {
+          include: {
+            approver: { include: { role: true, department: true } },
+          },
+          orderBy: { stepOrder: 'asc' },
+        },
+      },
     });
 
     if (!request?.permissionRequest) {
@@ -147,7 +180,7 @@ export class PermissionService {
         requesterId: userId,
         type: RequestType.IZIN,
       },
-      include: { permissionRequest: true, attachments: true },
+      include: { permissionRequest: true },
     });
 
     if (!request?.permissionRequest) {
@@ -166,7 +199,16 @@ export class PermissionService {
         status: RequestStatus.DIBATALKAN,
         completedAt: new Date(),
       },
-      include: { permissionRequest: true, attachments: true },
+      include: {
+        permissionRequest: true,
+        attachments: true,
+        approvals: {
+          include: {
+            approver: { include: { role: true, department: true } },
+          },
+          orderBy: { stepOrder: 'asc' },
+        },
+      },
     });
 
     return {
@@ -258,6 +300,19 @@ export class PermissionService {
       mimeType: string;
       sizeByte: number;
       createdAt: Date;
+    }>;
+    approvals?: Array<{
+      id: number;
+      stepOrder: number;
+      status: string;
+      reviewNote: string | null;
+      reviewedAt: Date | null;
+      approver: {
+        id: number;
+        name: string;
+        role: { name: string };
+        department: { name: string };
+      };
     }>;
   }) {
     return {

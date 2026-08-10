@@ -9,6 +9,7 @@ import {
   RequestStatus,
   RequestType,
 } from '../generated/prisma/client';
+import { ApprovalService } from '../approval/approval.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { parsePositiveNumber } from '../users/utils/parse-positive-number';
 import { CreateLeaveDto } from './dto/create-leave.dto';
@@ -20,6 +21,7 @@ export class LeaveService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly leaveBalanceService: LeaveBalanceService,
+    private readonly approvalService: ApprovalService,
   ) {}
 
   getBalance(userId: number, yearValue?: string) {
@@ -58,8 +60,17 @@ export class LeaveService {
     }
 
     const totalDays = this.countDays(startDate, endDate);
-    const createRequest = (client: Prisma.TransactionClient) =>
-      client.request.create({
+    const request = await this.prisma.$transaction(async (transaction) => {
+      if (leaveType === LeaveType.TAHUNAN) {
+        await this.leaveBalanceService.reserve(
+          userId,
+          startDate.getUTCFullYear(),
+          totalDays,
+          transaction,
+        );
+      }
+
+      const createdRequest = await transaction.request.create({
         data: {
           requesterId: userId,
           type: RequestType.CUTI,
@@ -72,21 +83,40 @@ export class LeaveService {
             },
           },
         },
-        include: { leaveRequest: true, attachments: true },
+        select: { id: true },
       });
+      const approvalResult = await this.approvalService.generateForRequest(
+        createdRequest.id,
+        userId,
+        transaction,
+      );
 
-    const request =
-      leaveType === LeaveType.TAHUNAN
-        ? await this.prisma.$transaction(async (transaction) => {
-            await this.leaveBalanceService.reserve(
-              userId,
-              startDate.getUTCFullYear(),
-              totalDays,
-              transaction,
-            );
-            return createRequest(transaction);
-          })
-        : await createRequest(this.prisma);
+      if (
+        approvalResult.autoApproved &&
+        leaveType === LeaveType.TAHUNAN
+      ) {
+        await this.leaveBalanceService.commit(
+          userId,
+          startDate.getUTCFullYear(),
+          totalDays,
+          transaction,
+        );
+      }
+
+      return transaction.request.findUniqueOrThrow({
+        where: { id: createdRequest.id },
+        include: {
+          leaveRequest: true,
+          attachments: true,
+          approvals: {
+            include: {
+              approver: { include: { role: true, department: true } },
+            },
+            orderBy: { stepOrder: 'asc' },
+          },
+        },
+      });
+    });
 
     return {
       message: 'Pengajuan cuti berhasil dibuat.',
@@ -109,7 +139,16 @@ export class LeaveService {
         requesterId: userId,
         type: RequestType.CUTI,
       },
-      include: { leaveRequest: true, attachments: true },
+      include: {
+        leaveRequest: true,
+        attachments: true,
+        approvals: {
+          include: {
+            approver: { include: { role: true, department: true } },
+          },
+          orderBy: { stepOrder: 'asc' },
+        },
+      },
     });
 
     if (!request?.leaveRequest) {
@@ -127,7 +166,7 @@ export class LeaveService {
           requesterId: userId,
           type: RequestType.CUTI,
         },
-        include: { leaveRequest: true, attachments: true },
+        include: { leaveRequest: true },
       });
 
       if (!currentRequest?.leaveRequest) {
@@ -158,7 +197,16 @@ export class LeaveService {
           status: RequestStatus.DIBATALKAN,
           completedAt: new Date(),
         },
-        include: { leaveRequest: true, attachments: true },
+        include: {
+          leaveRequest: true,
+          attachments: true,
+          approvals: {
+            include: {
+              approver: { include: { role: true, department: true } },
+            },
+            orderBy: { stepOrder: 'asc' },
+          },
+        },
       });
     });
 
@@ -298,6 +346,19 @@ export class LeaveService {
       mimeType: string;
       sizeByte: number;
       createdAt: Date;
+    }>;
+    approvals?: Array<{
+      id: number;
+      stepOrder: number;
+      status: string;
+      reviewNote: string | null;
+      reviewedAt: Date | null;
+      approver: {
+        id: number;
+        name: string;
+        role: { name: string };
+        department: { name: string };
+      };
     }>;
   }) {
     return {
