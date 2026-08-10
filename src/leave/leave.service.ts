@@ -72,7 +72,7 @@ export class LeaveService {
             },
           },
         },
-        include: { leaveRequest: true },
+        include: { leaveRequest: true, attachments: true },
       });
 
     const request =
@@ -109,7 +109,7 @@ export class LeaveService {
         requesterId: userId,
         type: RequestType.CUTI,
       },
-      include: { leaveRequest: true },
+      include: { leaveRequest: true, attachments: true },
     });
 
     if (!request?.leaveRequest) {
@@ -127,7 +127,7 @@ export class LeaveService {
           requesterId: userId,
           type: RequestType.CUTI,
         },
-        include: { leaveRequest: true },
+        include: { leaveRequest: true, attachments: true },
       });
 
       if (!currentRequest?.leaveRequest) {
@@ -158,7 +158,7 @@ export class LeaveService {
           status: RequestStatus.DIBATALKAN,
           completedAt: new Date(),
         },
-        include: { leaveRequest: true },
+        include: { leaveRequest: true, attachments: true },
       });
     });
 
@@ -290,6 +290,15 @@ export class LeaveService {
     } | null;
     permissionRequest?: unknown;
     reimbursementRequest?: unknown;
+    attachments?: Array<{
+      id: number;
+      requestId: number | null;
+      fileUrl: string;
+      fileName: string;
+      mimeType: string;
+      sizeByte: number;
+      createdAt: Date;
+    }>;
   }) {
     return {
       ...request,
