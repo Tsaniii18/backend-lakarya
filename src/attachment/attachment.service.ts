@@ -1,10 +1,14 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { CloudflareR2Service } from '../common/integrations/cloudflare-r2.service';
-import { AttachmentType } from '../generated/prisma/client';
+import {
+  AttachmentType,
+  RoleName,
+} from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface RequestAttachmentFile {
@@ -101,16 +105,39 @@ export class AttachmentService {
     requestId: number,
     attachmentId: number,
   ) {
-    const attachment = await this.prisma.attachmentFile.findFirst({
-      where: {
-        id: attachmentId,
-        requestId,
-        request: { requesterId: userId },
-      },
-    });
+    const [attachment, user] = await this.prisma.$transaction([
+      this.prisma.attachmentFile.findFirst({
+        where: { id: attachmentId, requestId },
+        include: {
+          request: {
+            select: {
+              requesterId: true,
+              approvals: {
+                where: { approverId: userId },
+                select: { id: true },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { role: true, department: true },
+      }),
+    ]);
 
     if (!attachment) {
       throw new NotFoundException('Lampiran tidak ditemukan.');
+    }
+
+    const isOwner = attachment.request?.requesterId === userId;
+    const isApprover = Boolean(attachment.request?.approvals.length);
+    const isHrManager =
+      user?.role.name === RoleName.MANAJER &&
+      user.department.name === 'Human Resources';
+
+    if (!isOwner && !isApprover && !isHrManager) {
+      throw new ForbiddenException('Anda tidak dapat melihat lampiran ini.');
     }
 
     const object = await this.cloudflareR2Service.getObject(
