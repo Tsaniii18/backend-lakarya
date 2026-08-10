@@ -29,7 +29,7 @@ export class CloudflareR2Service {
       );
     } catch {
       throw new BadGatewayException(
-        'Foto profil gagal diunggah. Silakan coba lagi.',
+        'File gagal diunggah. Silakan coba lagi.',
       );
     }
 
@@ -58,7 +58,7 @@ export class CloudflareR2Service {
         contentType: response.ContentType ?? 'application/octet-stream',
       };
     } catch {
-      throw new BadGatewayException('Foto profil gagal dimuat.');
+      throw new BadGatewayException('File gagal dimuat.');
     }
   }
 
@@ -72,7 +72,7 @@ export class CloudflareR2Service {
       );
     } catch {
       throw new BadGatewayException(
-        'Foto profil gagal dihapus. Silakan coba lagi.',
+        'File gagal dihapus. Silakan coba lagi.',
       );
     }
   }

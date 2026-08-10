@@ -78,7 +78,7 @@ export class PermissionService {
           },
         },
       },
-      include: { permissionRequest: true },
+      include: { permissionRequest: true, attachments: true },
     });
 
     return {
@@ -130,7 +130,7 @@ export class PermissionService {
         requesterId: userId,
         type: RequestType.IZIN,
       },
-      include: { permissionRequest: true },
+      include: { permissionRequest: true, attachments: true },
     });
 
     if (!request?.permissionRequest) {
@@ -147,7 +147,7 @@ export class PermissionService {
         requesterId: userId,
         type: RequestType.IZIN,
       },
-      include: { permissionRequest: true },
+      include: { permissionRequest: true, attachments: true },
     });
 
     if (!request?.permissionRequest) {
@@ -166,7 +166,7 @@ export class PermissionService {
         status: RequestStatus.DIBATALKAN,
         completedAt: new Date(),
       },
-      include: { permissionRequest: true },
+      include: { permissionRequest: true, attachments: true },
     });
 
     return {
@@ -250,6 +250,15 @@ export class PermissionService {
       createdAt: Date;
       updatedAt: Date;
     } | null;
+    attachments?: Array<{
+      id: number;
+      requestId: number | null;
+      fileUrl: string;
+      fileName: string;
+      mimeType: string;
+      sizeByte: number;
+      createdAt: Date;
+    }>;
   }) {
     return {
       ...request,
