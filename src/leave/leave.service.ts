@@ -228,6 +228,11 @@ export class LeaveService {
     const order = query.order === 'asc' ? 'asc' : 'desc';
     const where: Prisma.RequestWhereInput = {
       requesterId: userId,
+      NOT: {
+        approvals: {
+          some: { approverId: userId },
+        },
+      },
       ...(type ? { type } : {}),
       ...(status ? { status } : {}),
     };
