@@ -5,6 +5,7 @@ import { AuthModule } from './auth/auth.module';
 import { LeaveModule } from './leave/leave.module';
 import { PermissionModule } from './permission/permission.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { ReimbursementModule } from './reimbursement/reimbursement.module';
 import { UsersModule } from './users/users.module';
 
 @Module({
@@ -16,6 +17,7 @@ import { UsersModule } from './users/users.module';
     PermissionModule,
     AttachmentModule,
     ApprovalModule,
+    ReimbursementModule,
   ],
 })
 export class AppModule {}
