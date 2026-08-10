@@ -87,6 +87,51 @@ export class ApprovalService {
     return { autoApproved: false };
   }
 
+  async generateForReimbursement(
+    requestId: number,
+    requesterId: number,
+    client: Prisma.TransactionClient,
+  ) {
+    const requester = await client.user.findUnique({
+      where: { id: requesterId },
+      include: { role: true, department: true },
+    });
+
+    if (!requester) {
+      throw new NotFoundException('User pengaju tidak ditemukan.');
+    }
+
+    const isFinanceManager =
+      requester.role.name === RoleName.MANAJER &&
+      requester.department.name === 'Finance';
+
+    if (isFinanceManager) {
+      await client.request.update({
+        where: { id: requestId },
+        data: {
+          status: RequestStatus.DISETUJUI,
+          completedAt: new Date(),
+        },
+      });
+      return { autoApproved: true };
+    }
+
+    const financeManager = await this.findSingleManager(
+      client,
+      undefined,
+      'Finance',
+    );
+    await client.requestApproval.create({
+      data: {
+        requestId,
+        approverId: financeManager.id,
+        stepOrder: 1,
+      },
+    });
+
+    return { autoApproved: false };
+  }
+
   async listInbox(userId: number, query: ListApprovalsQueryDto) {
     const page = parsePositiveNumber(query.page, 1);
     const limit = parsePositiveNumber(query.limit, 10);
@@ -139,6 +184,7 @@ export class ApprovalService {
               requester: { include: { role: true, department: true } },
               leaveRequest: true,
               permissionRequest: true,
+              reimbursementRequest: true,
               approvals: {
                 include: {
                   approver: { include: { role: true, department: true } },
@@ -175,6 +221,7 @@ export class ApprovalService {
             requester: { include: { role: true, department: true } },
             leaveRequest: true,
             permissionRequest: true,
+            reimbursementRequest: true,
             attachments: true,
             approvals: {
               include: {
