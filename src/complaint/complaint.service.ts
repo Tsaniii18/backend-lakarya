@@ -15,12 +15,18 @@ import { parsePositiveNumber } from '../users/utils/parse-positive-number';
 import { CreateComplaintDto } from './dto/create-complaint.dto';
 import { ListComplaintsQueryDto } from './dto/list-complaints-query.dto';
 import { ManageComplaintsQueryDto } from './dto/manage-complaints-query.dto';
+import { ReopenComplaintDto } from './dto/reopen-complaint.dto';
 import { UpdateComplaintDto } from './dto/update-complaint.dto';
 
 const complaintInclude = {
   reporter: { include: { role: true, department: true } },
-  handler: { include: { role: true, department: true } },
   attachments: true,
+  activities: {
+    include: {
+      actor: { include: { role: true, department: true } },
+    },
+    orderBy: { createdAt: 'asc' as const },
+  },
 };
 
 @Injectable()
@@ -49,6 +55,13 @@ export class ComplaintService {
         subject,
         category,
         description,
+        activities: {
+          create: {
+            actorId: userId,
+            toStatus: ComplaintStatus.TERBUKA,
+            note: 'Keluhan dibuat.',
+          },
+        },
       },
       include: complaintInclude,
     });
@@ -90,8 +103,13 @@ export class ComplaintService {
     return complaint;
   }
 
-  async reopen(userId: number, complaintId: number) {
+  async reopen(
+    userId: number,
+    complaintId: number,
+    dto: ReopenComplaintDto,
+  ) {
     await this.ensureCanUseOwnComplaints(userId);
+    const activityNote = this.parseActivityNote(dto.note);
     const complaint = await this.prisma.complaint.findFirst({
       where: { id: complaintId, reporterId: userId },
     });
@@ -105,15 +123,70 @@ export class ComplaintService {
       );
     }
 
-    const reopened = await this.prisma.complaint.update({
-      where: { id: complaintId },
-      data: { status: ComplaintStatus.DIPROSES },
-      include: complaintInclude,
+    const reopened = await this.prisma.$transaction(async (transaction) => {
+      await transaction.complaint.update({
+        where: { id: complaintId },
+        data: { status: ComplaintStatus.DIPROSES },
+      });
+      await transaction.complaintActivity.create({
+        data: {
+          complaintId,
+          actorId: userId,
+          fromStatus: ComplaintStatus.SELESAI,
+          toStatus: ComplaintStatus.DIPROSES,
+          note: activityNote,
+        },
+      });
+      return transaction.complaint.findUnique({
+        where: { id: complaintId },
+        include: complaintInclude,
+      });
     });
 
     return {
       message: 'Keluhan berhasil diajukan untuk diproses kembali.',
       complaint: reopened,
+    };
+  }
+
+  async close(userId: number, complaintId: number) {
+    await this.ensureCanUseOwnComplaints(userId);
+    const complaint = await this.prisma.complaint.findFirst({
+      where: { id: complaintId, reporterId: userId },
+    });
+
+    if (!complaint) {
+      throw new NotFoundException('Keluhan tidak ditemukan.');
+    }
+    if (complaint.status !== ComplaintStatus.SELESAI) {
+      throw new BadRequestException(
+        'Hanya keluhan berstatus SELESAI yang dapat ditutup.',
+      );
+    }
+
+    const closed = await this.prisma.$transaction(async (transaction) => {
+      await transaction.complaint.update({
+        where: { id: complaintId },
+        data: { status: ComplaintStatus.DITUTUP },
+      });
+      await transaction.complaintActivity.create({
+        data: {
+          complaintId,
+          actorId: userId,
+          fromStatus: ComplaintStatus.SELESAI,
+          toStatus: ComplaintStatus.DITUTUP,
+          note: 'Pelapor mengonfirmasi bahwa keluhan telah selesai.',
+        },
+      });
+      return transaction.complaint.findUnique({
+        where: { id: complaintId },
+        include: complaintInclude,
+      });
+    });
+
+    return {
+      message: 'Keluhan berhasil ditutup.',
+      complaint: closed,
     };
   }
 
@@ -136,7 +209,6 @@ export class ComplaintService {
         where,
         include: {
           reporter: { include: { role: true, department: true } },
-          handler: true,
         },
         orderBy: { createdAt: order },
         skip: (page - 1) * limit,
@@ -166,7 +238,7 @@ export class ComplaintService {
     dto: UpdateComplaintDto,
   ) {
     await this.ensureHrManager(userId);
-    if (dto.status === undefined && dto.resolutionNote === undefined) {
+    if (dto.status === undefined) {
       throw new BadRequestException('Tidak ada perubahan keluhan yang dikirim.');
     }
 
@@ -180,25 +252,33 @@ export class ComplaintService {
     const nextStatus = dto.status
       ? this.parseStatus(dto.status)
       : complaint.status;
-    if (nextStatus !== complaint.status) {
-      this.ensureValidTransition(complaint.status, nextStatus);
+    if (nextStatus === complaint.status) {
+      throw new BadRequestException('Status tujuan harus berbeda.');
     }
+    this.ensureValidHrTransition(complaint.status, nextStatus);
+    const activityNote = this.parseActivityNote(dto.activityNote);
 
-    const startsProcessing =
-      nextStatus === ComplaintStatus.DIPROSES &&
-      complaint.status !== ComplaintStatus.DIPROSES;
-    const updated = await this.prisma.complaint.update({
-      where: { id: complaintId },
-      data: {
-        status: nextStatus,
-        ...(dto.resolutionNote !== undefined
-          ? { resolutionNote: dto.resolutionNote.trim() || null }
-          : {}),
-        ...(startsProcessing
-          ? { handlerId: userId, reviewedAt: new Date() }
-          : {}),
-      },
-      include: complaintInclude,
+    const complaintData = {
+      status: nextStatus,
+    };
+    const updated = await this.prisma.$transaction(async (transaction) => {
+      await transaction.complaint.update({
+        where: { id: complaintId },
+        data: complaintData,
+      });
+      await transaction.complaintActivity.create({
+        data: {
+          complaintId,
+          actorId: userId,
+          fromStatus: complaint.status,
+          toStatus: nextStatus,
+          note: activityNote,
+        },
+      });
+      return transaction.complaint.findUnique({
+          where: { id: complaintId },
+          include: complaintInclude,
+      });
     });
 
     return {
@@ -207,14 +287,14 @@ export class ComplaintService {
     };
   }
 
-  private ensureValidTransition(
+  private ensureValidHrTransition(
     current: ComplaintStatus,
     next: ComplaintStatus,
   ) {
     const allowed: Record<ComplaintStatus, ComplaintStatus[]> = {
       TERBUKA: [ComplaintStatus.DIPROSES],
       DIPROSES: [ComplaintStatus.SELESAI],
-      SELESAI: [ComplaintStatus.DIPROSES, ComplaintStatus.DITUTUP],
+      SELESAI: [],
       DITUTUP: [],
     };
     if (!allowed[current].includes(next)) {
@@ -244,6 +324,16 @@ export class ComplaintService {
 
   private parseOptionalStatus(value?: string) {
     return value ? this.parseStatus(value) : undefined;
+  }
+
+  private parseActivityNote(value?: string) {
+    const note = value?.trim();
+    if (!note) {
+      throw new BadRequestException(
+        'Catatan aktivitas wajib diisi untuk perubahan status.',
+      );
+    }
+    return note;
   }
 
   private async ensureCanUseOwnComplaints(userId: number) {

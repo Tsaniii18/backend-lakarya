@@ -17,6 +17,7 @@ import { ComplaintService } from './complaint.service';
 import { CreateComplaintDto } from './dto/create-complaint.dto';
 import { ListComplaintsQueryDto } from './dto/list-complaints-query.dto';
 import { ManageComplaintsQueryDto } from './dto/manage-complaints-query.dto';
+import { ReopenComplaintDto } from './dto/reopen-complaint.dto';
 import { UpdateComplaintDto } from './dto/update-complaint.dto';
 
 @ApiTags('Complaints')
@@ -54,8 +55,17 @@ export class ComplaintController {
   reopen(
     @Req() request: AuthenticatedRequest,
     @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReopenComplaintDto,
   ) {
-    return this.complaintService.reopen(request.user.id, id);
+    return this.complaintService.reopen(request.user.id, id, dto);
+  }
+
+  @Patch(':id/close')
+  close(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.complaintService.close(request.user.id, id);
   }
 }
 

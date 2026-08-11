@@ -111,7 +111,7 @@ model User {
   requests         Request[]
   approvals        RequestApproval[]
   complaints       Complaint[]   @relation("ComplaintReporter")
-  handledComplaints Complaint[]   @relation("ComplaintHandler")
+  complaintActivities ComplaintActivity[]
 
   @@index([departmentId])
   @@index([roleId])
@@ -235,22 +235,34 @@ model RequestApproval {
 model Complaint {
   id             Int               @id @default(autoincrement())
   reporterId     Int               @map("reporter_id")
-  handlerId      Int?              @map("handler_id")
   subject        String            @db.VarChar(191)
   category       ComplaintCategory
   description    String            @db.Text
   status         ComplaintStatus   @default(TERBUKA)
-  resolutionNote String?           @map("resolution_note") @db.Text
   createdAt      DateTime          @default(now()) @map("created_at") @db.DateTime(3)
-  reviewedAt     DateTime?         @map("reviewed_at") @db.DateTime(3)
   updatedAt      DateTime          @updatedAt @map("updated_at") @db.DateTime(3)
   reporter       User              @relation("ComplaintReporter", fields: [reporterId], references: [id], onDelete: Restrict)
-  handler        User?             @relation("ComplaintHandler", fields: [handlerId], references: [id], onDelete: Restrict)
   attachments    AttachmentFile[]
+  activities     ComplaintActivity[]
 
   @@index([reporterId])
-  @@index([handlerId])
   @@map("complaints")
+}
+
+model ComplaintActivity {
+  id           Int             @id @default(autoincrement())
+  complaintId  Int             @map("complaint_id")
+  actorId      Int             @map("actor_id")
+  fromStatus   ComplaintStatus? @map("from_status")
+  toStatus     ComplaintStatus  @map("to_status")
+  note         String           @db.Text
+  createdAt    DateTime         @default(now()) @map("created_at") @db.DateTime(3)
+  complaint    Complaint        @relation(fields: [complaintId], references: [id], onDelete: Restrict)
+  actor        User             @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([complaintId])
+  @@index([actorId])
+  @@map("complaint_activities")
 }
 
 model AttachmentFile {

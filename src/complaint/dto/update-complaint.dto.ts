@@ -5,6 +5,6 @@ export class UpdateComplaintDto {
   @ApiPropertyOptional({ enum: ComplaintStatus })
   status?: string;
 
-  @ApiPropertyOptional({ example: 'Fasilitas telah diperbaiki.' })
-  resolutionNote?: string;
+  @ApiPropertyOptional({ example: 'Keluhan mulai ditangani oleh HR.' })
+  activityNote?: string;
 }
