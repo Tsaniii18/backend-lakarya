@@ -74,3 +74,54 @@ export class AttachmentController {
     });
   }
 }
+
+@ApiTags('Complaint Attachments')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
+@Controller('complaints')
+export class ComplaintAttachmentController {
+  constructor(private readonly attachmentService: AttachmentService) {}
+
+  @Post(':complaintId/attachments')
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', format: 'binary' },
+      },
+      required: ['file'],
+    },
+  })
+  uploadComplaintAttachment(
+    @Req() request: AuthenticatedRequest,
+    @Param('complaintId', ParseIntPipe) complaintId: number,
+    @UploadedFile() file?: RequestAttachmentFile,
+  ) {
+    return this.attachmentService.uploadComplaintAttachment(
+      request.user.id,
+      complaintId,
+      file,
+    );
+  }
+
+  @Get(':complaintId/attachments/:attachmentId')
+  async getComplaintAttachment(
+    @Req() request: AuthenticatedRequest,
+    @Param('complaintId', ParseIntPipe) complaintId: number,
+    @Param('attachmentId', ParseIntPipe) attachmentId: number,
+  ) {
+    const attachment = await this.attachmentService.getComplaintAttachment(
+      request.user.id,
+      complaintId,
+      attachmentId,
+    );
+    const safeFileName = attachment.fileName.replace(/["\r\n]/g, '-');
+
+    return new StreamableFile(attachment.body, {
+      type: attachment.contentType,
+      disposition: `inline; filename="${safeFileName}"`,
+    });
+  }
+}
