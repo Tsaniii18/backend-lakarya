@@ -149,4 +149,137 @@ export class AttachmentService {
       fileName: attachment.fileName,
     };
   }
+
+  async uploadComplaintAttachment(
+    userId: number,
+    complaintId: number,
+    file?: RequestAttachmentFile,
+  ) {
+    const [complaint, user] = await this.prisma.$transaction([
+      this.prisma.complaint.findFirst({
+        where: { id: complaintId, reporterId: userId },
+        select: { id: true },
+      }),
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { role: true, department: true },
+      }),
+    ]);
+
+    const isHrManager =
+      user?.role.name === RoleName.MANAJER &&
+      user.department.name === 'Human Resources';
+
+    if (isHrManager) {
+      throw new ForbiddenException(
+        'HR Manager hanya dapat menangani keluhan karyawan.',
+      );
+    }
+
+    if (!complaint) {
+      throw new NotFoundException('Keluhan tidak ditemukan.');
+    }
+
+    if (!file) {
+      throw new BadRequestException('Lampiran wajib dipilih.');
+    }
+
+    const extensions: Record<string, string> = {
+      'application/pdf': 'pdf',
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+    };
+    const extension = extensions[file.mimetype];
+
+    if (!extension) {
+      throw new BadRequestException(
+        'Format lampiran harus berupa PDF, JPEG, PNG, atau WebP.',
+      );
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      throw new BadRequestException('Ukuran setiap lampiran maksimal 2 MB.');
+    }
+
+    const attachmentCount = await this.prisma.attachmentFile.count({
+      where: { complaintId },
+    });
+
+    if (attachmentCount >= 3) {
+      throw new BadRequestException(
+        'Setiap keluhan hanya dapat memiliki maksimal 3 lampiran.',
+      );
+    }
+
+    const baseName =
+      file.originalname
+        .replace(/\.[^.]+$/, '')
+        .replace(/[^a-zA-Z0-9-_]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '') || 'lampiran';
+    const objectKey = `users/${userId}/complaints/${complaintId}/${Date.now()}-${baseName}.${extension}`;
+    const fileUrl = await this.cloudflareR2Service.uploadObject(
+      objectKey,
+      file.buffer,
+      file.mimetype,
+    );
+    const attachment = await this.prisma.attachmentFile.create({
+      data: {
+        complaintId,
+        cdnPublicId: objectKey,
+        fileUrl,
+        fileName: file.originalname,
+        mimeType: file.mimetype,
+        sizeByte: file.size,
+        attachmentType: AttachmentType.KELUHAN,
+      },
+    });
+
+    return {
+      message: 'Lampiran keluhan berhasil diunggah.',
+      attachment,
+    };
+  }
+
+  async getComplaintAttachment(
+    userId: number,
+    complaintId: number,
+    attachmentId: number,
+  ) {
+    const [attachment, user] = await this.prisma.$transaction([
+      this.prisma.attachmentFile.findFirst({
+        where: { id: attachmentId, complaintId },
+        include: {
+          complaint: {
+            select: { reporterId: true },
+          },
+        },
+      }),
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { role: true, department: true },
+      }),
+    ]);
+
+    if (!attachment) {
+      throw new NotFoundException('Lampiran tidak ditemukan.');
+    }
+
+    const isOwner = attachment.complaint?.reporterId === userId;
+    const isHrManager =
+      user?.role.name === RoleName.MANAJER &&
+      user.department.name === 'Human Resources';
+
+    if (!isOwner && !isHrManager) {
+      throw new ForbiddenException('Anda tidak dapat melihat lampiran ini.');
+    }
+
+    const object = await this.cloudflareR2Service.getObject(attachment.fileUrl);
+
+    return {
+      ...object,
+      fileName: attachment.fileName,
+    };
+  }
 }
