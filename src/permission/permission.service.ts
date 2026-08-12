@@ -151,10 +151,21 @@ export class PermissionService {
     const request = await this.prisma.request.findFirst({
       where: {
         id: requestId,
-        requesterId: userId,
         type: RequestType.IZIN,
+        OR: [
+          { requesterId: userId },
+          { approvals: { some: { approverId: userId } } },
+        ],
       },
       include: {
+        requester: {
+          select: {
+            id: true,
+            name: true,
+            employeeNumber: true,
+            department: { select: { name: true } },
+          },
+        },
         permissionRequest: true,
         attachments: true,
         approvals: {
@@ -279,6 +290,12 @@ export class PermissionService {
     createdAt: Date;
     updatedAt: Date;
     completedAt: Date | null;
+    requester?: {
+      id: number;
+      name: string;
+      employeeNumber: string;
+      department: { name: string };
+    };
     permissionRequest: {
       id: number;
       requestId: number;
