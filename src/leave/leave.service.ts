@@ -136,10 +136,21 @@ export class LeaveService {
     const request = await this.prisma.request.findFirst({
       where: {
         id: requestId,
-        requesterId: userId,
         type: RequestType.CUTI,
+        OR: [
+          { requesterId: userId },
+          { approvals: { some: { approverId: userId } } },
+        ],
       },
       include: {
+        requester: {
+          select: {
+            id: true,
+            name: true,
+            employeeNumber: true,
+            department: { select: { name: true } },
+          },
+        },
         leaveRequest: true,
         attachments: true,
         approvals: {
@@ -331,6 +342,12 @@ export class LeaveService {
     createdAt: Date;
     updatedAt: Date;
     completedAt: Date | null;
+    requester?: {
+      id: number;
+      name: string;
+      employeeNumber: string;
+      department: { name: string };
+    };
     leaveRequest?: {
       id: number;
       requestId: number;

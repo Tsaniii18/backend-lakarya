@@ -121,10 +121,23 @@ export class ReimbursementService {
     const request = await this.prisma.request.findFirst({
       where: {
         id: requestId,
-        requesterId: userId,
         type: RequestType.PENGGANTIAN_BIAYA,
+        OR: [
+          { requesterId: userId },
+          { approvals: { some: { approverId: userId } } },
+        ],
       },
-      include: reimbursementInclude,
+      include: {
+        requester: {
+          select: {
+            id: true,
+            name: true,
+            employeeNumber: true,
+            department: { select: { name: true } },
+          },
+        },
+        ...reimbursementInclude,
+      },
     });
 
     if (!request?.reimbursementRequest) {
