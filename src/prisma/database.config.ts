@@ -8,6 +8,8 @@ interface DatabaseConnectionConfig {
   password: string;
   database: string;
   connectionLimit: number;
+  connectTimeout: number;
+  acquireTimeout: number;
   ssl?:
     | boolean
     | {
@@ -140,6 +142,16 @@ export function getDatabaseConnectionConfig(): DatabaseConnectionConfig {
       process.env.DB_CONNECTION_LIMIT,
       5,
       'DB_CONNECTION_LIMIT',
+    ),
+    connectTimeout: positiveInteger(
+      process.env.DB_CONNECT_TIMEOUT,
+      10_000,
+      'DB_CONNECT_TIMEOUT',
+    ),
+    acquireTimeout: positiveInteger(
+      process.env.DB_ACQUIRE_TIMEOUT,
+      15_000,
+      'DB_ACQUIRE_TIMEOUT',
     ),
     ...(ssl ? { ssl } : {}),
   };
