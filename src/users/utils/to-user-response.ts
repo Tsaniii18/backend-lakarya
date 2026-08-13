@@ -1,4 +1,5 @@
 import { AccountStatus, RoleName } from '../../generated/prisma/client';
+import { isDemoAccountEmail } from '../../common/demo-accounts';
 
 export function toUserResponse(user: {
   id: number;
@@ -19,6 +20,7 @@ export function toUserResponse(user: {
     email: user.email,
     accountStatus: user.accountStatus,
     profilePictureUrl: user.profilePictureUrl,
+    isDemo: isDemoAccountEmail(user.email),
     department: user.department,
     role: user.role.name,
     createdAt: user.createdAt,

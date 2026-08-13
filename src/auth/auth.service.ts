@@ -3,13 +3,22 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AccountStatus, RoleName } from '../generated/prisma/client';
 import { ResendService } from '../common/integrations/resend.service';
+import {
+  demoAccounts,
+  findDemoAccount,
+  isDemoAccountEmail,
+  isDemoModeEnabled,
+} from '../common/demo-accounts';
 import { PrismaService } from '../prisma/prisma.service';
+import { DemoLoginDto } from './dto/demo-login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -100,29 +109,64 @@ export class AuthService {
       throw new UnauthorizedException('Email atau password salah.');
     }
 
-    this.ensureUserCanLogin(user.accountStatus);
+    return this.createSession(user, metadata);
+  }
 
-    const secret = this.getRequiredSecret('JWT_SECRET');
-    const accessToken = await this.jwtService.signAsync(
-      { sub: user.id, email: user.email },
-      { secret, expiresIn: '1d' },
-    );
-    const tokenHash = createHash('sha256').update(accessToken).digest('hex');
+  getDemoAccess() {
+    const enabled = isDemoModeEnabled();
 
-    await this.prisma.userSession.create({
-      data: {
+    return {
+      enabled,
+      personas: enabled
+        ? demoAccounts.map(({ persona, label, role, department }) => ({
+            persona,
+            label,
+            role,
+            department,
+          }))
+        : [],
+    };
+  }
+
+  async demoLogin(
+    dto: DemoLoginDto,
+    metadata: { ip?: string; agent?: string; device?: string },
+  ) {
+    if (!isDemoModeEnabled()) {
+      throw new ForbiddenException('Akses akun demo tidak tersedia.');
+    }
+
+    const demoAccount = findDemoAccount(dto.persona);
+    if (!demoAccount) {
+      throw new BadRequestException('Pilihan akun demo tidak valid.');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { email: demoAccount.email },
+      include: { department: true, role: true },
+    });
+
+    if (!user) {
+      throw new BadRequestException(
+        'Akun demo belum tersedia. Jalankan seed utama terlebih dahulu.',
+      );
+    }
+
+    const recentSessions = await this.prisma.userSession.count({
+      where: {
         userId: user.id,
-        tokenHash,
-        ip: metadata.ip,
-        agent: metadata.agent,
-        device: metadata.device,
+        createdAt: { gte: new Date(Date.now() - 60_000) },
       },
     });
 
-    return {
-      accessToken,
-      user: toAuthUserResponse(user),
-    };
+    if (recentSessions >= 10) {
+      throw new HttpException(
+        'Akun demo sedang ramai digunakan. Silakan coba lagi sebentar.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    return this.createSession(user, metadata);
   }
 
   async logout(userId: number, token: string) {
@@ -149,7 +193,7 @@ export class AuthService {
       where: { email: dto.email.trim().toLowerCase() },
     });
 
-    if (user) {
+    if (user && !isDemoAccountEmail(user.email)) {
       const token = await this.jwtService.signAsync(
         { sub: user.id, purpose: 'password-reset' },
         {
@@ -200,6 +244,17 @@ export class AuthService {
         throw new Error('Invalid token purpose');
       }
 
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { email: true },
+      });
+
+      if (user && isDemoAccountEmail(user.email)) {
+        throw new ForbiddenException(
+          'Password akun demo tidak dapat diubah.',
+        );
+      }
+
       await this.prisma.$transaction([
         this.prisma.user.update({
           where: { id: payload.sub },
@@ -210,7 +265,9 @@ export class AuthService {
           data: { revokedAt: new Date() },
         }),
       ]);
-    } catch {
+    } catch (error) {
+      if (error instanceof ForbiddenException) throw error;
+
       throw new UnauthorizedException(
         'Token reset tidak valid atau telah kedaluwarsa.',
       );
@@ -256,6 +313,44 @@ export class AuthService {
     if (status !== AccountStatus.AKTIF) {
       throw new ForbiddenException('Akun tidak dapat digunakan untuk masuk.');
     }
+  }
+
+  private async createSession(
+    user: {
+      id: number;
+      employeeNumber: string;
+      name: string;
+      email: string;
+      accountStatus: AccountStatus;
+      profilePictureUrl: string | null;
+      department: { id: number; name: string };
+      role: { name: RoleName };
+    },
+    metadata: { ip?: string; agent?: string; device?: string },
+  ) {
+    this.ensureUserCanLogin(user.accountStatus);
+
+    const secret = this.getRequiredSecret('JWT_SECRET');
+    const accessToken = await this.jwtService.signAsync(
+      { sub: user.id, email: user.email },
+      { secret, expiresIn: '1d' },
+    );
+    const tokenHash = createHash('sha256').update(accessToken).digest('hex');
+
+    await this.prisma.userSession.create({
+      data: {
+        userId: user.id,
+        tokenHash,
+        ip: metadata.ip,
+        agent: metadata.agent,
+        device: metadata.device,
+      },
+    });
+
+    return {
+      accessToken,
+      user: toAuthUserResponse(user),
+    };
   }
 
   private getRequiredSecret(name: 'JWT_SECRET' | 'RESET_PASSWORD_SECRET') {
