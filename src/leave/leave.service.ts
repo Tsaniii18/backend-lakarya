@@ -10,6 +10,7 @@ import {
   RequestType,
 } from '../generated/prisma/client';
 import { ApprovalService } from '../approval/approval.service';
+import { NotificationService } from '../common/notifications/notification.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { parsePositiveNumber } from '../users/utils/parse-positive-number';
 import { CreateLeaveDto } from './dto/create-leave.dto';
@@ -22,6 +23,7 @@ export class LeaveService {
     private readonly prisma: PrismaService,
     private readonly leaveBalanceService: LeaveBalanceService,
     private readonly approvalService: ApprovalService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   getBalance(userId: number, yearValue?: string) {
@@ -117,6 +119,8 @@ export class LeaveService {
         },
       });
     });
+
+    await this.notificationService.notifyNewRequest(request.id);
 
     return {
       message: 'Pengajuan cuti berhasil dibuat.',

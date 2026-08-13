@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ApprovalModule } from '../approval/approval.module';
 import { AuthModule } from '../auth/auth.module';
+import { NotificationModule } from '../common/notifications/notification.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import {
   ManageReimbursementsController,
@@ -9,7 +10,7 @@ import {
 import { ReimbursementService } from './reimbursement.service';
 
 @Module({
-  imports: [PrismaModule, AuthModule, ApprovalModule],
+  imports: [PrismaModule, AuthModule, ApprovalModule, NotificationModule],
   controllers: [ReimbursementController, ManageReimbursementsController],
   providers: [ReimbursementService],
 })

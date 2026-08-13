@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ApprovalService } from '../approval/approval.service';
+import { NotificationService } from '../common/notifications/notification.service';
 import {
   ExpenseType,
   Prisma,
@@ -34,6 +35,7 @@ export class ReimbursementService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly approvalService: ApprovalService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async create(userId: number, dto: CreateReimbursementDto) {
@@ -85,6 +87,8 @@ export class ReimbursementService {
         include: reimbursementInclude,
       });
     });
+
+    await this.notificationService.notifyNewRequest(request.id);
 
     return {
       message: 'Pengajuan penggantian biaya berhasil dibuat.',

@@ -1,6 +1,6 @@
 import { BadGatewayException, Injectable } from '@nestjs/common';
 
-interface ResendEmail {
+export interface ResendEmail {
   to: string;
   subject: string;
   html: string;
@@ -26,7 +26,7 @@ export class ResendService {
     });
 
     if (!response.ok) {
-      throw new BadGatewayException('Email reset password gagal dikirim.');
+      throw new BadGatewayException('Email gagal dikirim.');
     }
   }
 
