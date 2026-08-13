@@ -6,22 +6,9 @@ import {
   PrismaClient,
   RoleName,
 } from '../src/generated/prisma/client';
+import { getDatabaseConnectionConfig } from '../src/prisma/database.config';
 
-const connectionString = process.env.DATABASE_URL;
-
-if (!connectionString) {
-  throw new Error('DATABASE_URL wajib diisi.');
-}
-
-const databaseUrl = new URL(connectionString);
-const adapter = new PrismaMariaDb({
-  host: databaseUrl.hostname,
-  port: Number(databaseUrl.port || 3306),
-  user: decodeURIComponent(databaseUrl.username),
-  password: decodeURIComponent(databaseUrl.password),
-  database: databaseUrl.pathname.slice(1),
-  connectionLimit: 5,
-});
+const adapter = new PrismaMariaDb(getDatabaseConnectionConfig());
 const prisma = new PrismaClient({ adapter });
 
 const roles = [
