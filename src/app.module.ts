@@ -3,6 +3,7 @@ import { AttachmentModule } from './attachment/attachment.module';
 import { ApprovalModule } from './approval/approval.module';
 import { AuthModule } from './auth/auth.module';
 import { ComplaintModule } from './complaint/complaint.module';
+import { HealthModule } from './health/health.module';
 import { LeaveModule } from './leave/leave.module';
 import { PermissionModule } from './permission/permission.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -21,6 +22,7 @@ import { UsersModule } from './users/users.module';
     ApprovalModule,
     ReimbursementModule,
     ComplaintModule,
+    HealthModule,
     ReportModule,
   ],
 })

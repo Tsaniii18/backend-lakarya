@@ -13,6 +13,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { hashPassword, verifyPassword } from '../auth/utils/password';
 import { CloudflareR2Service } from '../common/integrations/cloudflare-r2.service';
+import { isDemoAccountEmail } from '../common/demo-accounts';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { ListUsersQueryDto } from './dto/list-users-query.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -40,6 +41,13 @@ export class UsersService {
   async updateProfile(userId: number, dto: UpdateProfileDto) {
     const name = dto.name?.trim();
     const email = dto.email?.trim().toLowerCase();
+    const currentUser = await this.findUserWithRelations(userId);
+
+    if (isDemoAccountEmail(currentUser.email)) {
+      throw new ForbiddenException(
+        'Profil akun demo tidak dapat diubah. Silakan daftar akun pribadi untuk mencoba pengaturan profil.',
+      );
+    }
 
     if (!name && !email) {
       throw new BadRequestException('Tidak ada data profil yang diubah.');
@@ -97,6 +105,12 @@ export class UsersService {
       throw new NotFoundException('User tidak ditemukan.');
     }
 
+    if (isDemoAccountEmail(user.email)) {
+      throw new ForbiddenException(
+        'Password akun demo tidak dapat diubah agar tetap dapat digunakan bersama.',
+      );
+    }
+
     if (!verifyPassword(dto.currentPassword, user.passwordHash)) {
       throw new UnauthorizedException('Password saat ini salah.');
     }
@@ -120,6 +134,13 @@ export class UsersService {
   async updateProfilePicture(userId: number, file?: ProfilePictureFile) {
     if (!file) {
       throw new BadRequestException('Foto profil wajib dipilih.');
+    }
+
+    const currentUser = await this.findUserWithRelations(userId);
+    if (isDemoAccountEmail(currentUser.email)) {
+      throw new ForbiddenException(
+        'Foto profil akun demo tidak dapat diubah.',
+      );
     }
 
     const extensions: Record<string, string> = {
@@ -175,6 +196,12 @@ export class UsersService {
 
   async deleteProfilePicture(userId: number) {
     const user = await this.findUserWithRelations(userId);
+
+    if (isDemoAccountEmail(user.email)) {
+      throw new ForbiddenException(
+        'Foto profil akun demo tidak dapat dihapus.',
+      );
+    }
 
     if (!user.profilePictureUrl) {
       throw new BadRequestException('Foto profil belum tersedia.');
@@ -266,6 +293,7 @@ export class UsersService {
   async approveUser(actorUserId: number, userId: number) {
     this.ensureNotSelf(actorUserId, userId);
     const user = await this.findUserWithRelations(userId);
+    this.ensureAccountStatusCanChange(user.email);
 
     if (
       user.accountStatus !== AccountStatus.MENUNGGU &&
@@ -294,6 +322,7 @@ export class UsersService {
   async suspendUser(actorUserId: number, userId: number) {
     this.ensureNotSelf(actorUserId, userId);
     const user = await this.findUserWithRelations(userId);
+    this.ensureAccountStatusCanChange(user.email);
 
     if (user.accountStatus !== AccountStatus.AKTIF) {
       throw new BadRequestException(
@@ -324,6 +353,7 @@ export class UsersService {
   async rejectUser(actorUserId: number, userId: number) {
     this.ensureNotSelf(actorUserId, userId);
     const user = await this.findUserWithRelations(userId);
+    this.ensureAccountStatusCanChange(user.email);
 
     if (user.accountStatus !== AccountStatus.MENUNGGU) {
       throw new BadRequestException(
@@ -354,6 +384,7 @@ export class UsersService {
   async activateUser(actorUserId: number, userId: number) {
     this.ensureNotSelf(actorUserId, userId);
     const user = await this.findUserWithRelations(userId);
+    this.ensureAccountStatusCanChange(user.email);
 
     if (user.accountStatus !== AccountStatus.DITANGGUHKAN) {
       throw new BadRequestException(
@@ -396,6 +427,14 @@ export class UsersService {
     if (actorUserId === targetUserId) {
       throw new ForbiddenException(
         'HR Manager tidak dapat mengubah status akunnya sendiri.',
+      );
+    }
+  }
+
+  private ensureAccountStatusCanChange(email: string) {
+    if (isDemoAccountEmail(email)) {
+      throw new ForbiddenException(
+        'Status akun demo tidak dapat diubah agar akses bersama tetap tersedia.',
       );
     }
   }

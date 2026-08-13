@@ -11,6 +11,7 @@ import {
   RoleName,
 } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationService } from '../common/notifications/notification.service';
 import { parsePositiveNumber } from '../users/utils/parse-positive-number';
 import { CreateComplaintDto } from './dto/create-complaint.dto';
 import { ListComplaintsQueryDto } from './dto/list-complaints-query.dto';
@@ -31,7 +32,10 @@ const complaintInclude = {
 
 @Injectable()
 export class ComplaintService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
 
   async create(userId: number, dto: CreateComplaintDto) {
     await this.ensureCanUseOwnComplaints(userId);
@@ -65,6 +69,8 @@ export class ComplaintService {
       },
       include: complaintInclude,
     });
+
+    await this.notificationService.notifyNewComplaint(complaint.id);
 
     return {
       message: 'Keluhan berhasil dibuat.',

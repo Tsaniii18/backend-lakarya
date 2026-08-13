@@ -16,6 +16,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationService } from '../common/notifications/notification.service';
 import { parsePositiveNumber } from '../users/utils/parse-positive-number';
 import { ListApprovalsQueryDto } from './dto/list-approvals-query.dto';
 import { ManageRequestsQueryDto } from './dto/manage-requests-query.dto';
@@ -23,7 +24,10 @@ import { ReviewApprovalDto } from './dto/review-approval.dto';
 
 @Injectable()
 export class ApprovalService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
 
   async generateForRequest(
     requestId: number,
@@ -409,6 +413,11 @@ export class ApprovalService {
         await this.commitAnnualLeave(approval.request, transaction);
       }
     });
+
+    await this.notificationService.notifyApprovalReviewed(
+      approvalId,
+      decision,
+    );
 
     return {
       message:

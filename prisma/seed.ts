@@ -6,22 +6,13 @@ import {
   PrismaClient,
   RoleName,
 } from '../src/generated/prisma/client';
+import {
+  demoAccounts,
+  isDemoModeEnabled,
+} from '../src/common/demo-accounts';
+import { getDatabaseConnectionConfig } from '../src/prisma/database.config';
 
-const connectionString = process.env.DATABASE_URL;
-
-if (!connectionString) {
-  throw new Error('DATABASE_URL wajib diisi.');
-}
-
-const databaseUrl = new URL(connectionString);
-const adapter = new PrismaMariaDb({
-  host: databaseUrl.hostname,
-  port: Number(databaseUrl.port || 3306),
-  user: decodeURIComponent(databaseUrl.username),
-  password: decodeURIComponent(databaseUrl.password),
-  database: databaseUrl.pathname.slice(1),
-  connectionLimit: 5,
-});
+const adapter = new PrismaMariaDb(getDatabaseConnectionConfig());
 const prisma = new PrismaClient({ adapter });
 
 const roles = [
@@ -63,39 +54,84 @@ async function main() {
     });
   }
 
-  const managerRole = await prisma.role.findUniqueOrThrow({
-    where: { name: RoleName.MANAJER },
-  });
+  const [managerRole, staffRole] = await Promise.all([
+    prisma.role.findUniqueOrThrow({ where: { name: RoleName.MANAJER } }),
+    prisma.role.findUniqueOrThrow({ where: { name: RoleName.STAF } }),
+  ]);
   const managerPassword = process.env.SEED_MANAGER_PASSWORD;
 
   if (!managerPassword) {
-    throw new Error('SEED_MANAGER_PASSWORD wajib diisi sebelum menjalankan seed.');
+    throw new Error(
+      'SEED_MANAGER_PASSWORD wajib diisi sebelum menjalankan seed.',
+    );
   }
 
   for (const departmentSeed of departments) {
     const department = await prisma.department.findUniqueOrThrow({
       where: { name: departmentSeed.name },
     });
-    const existingManager = await prisma.user.findFirst({
-      where: {
+    const managerDemoAccount = demoAccounts.find(
+      (account) =>
+        account.role === 'MANAJER' &&
+        account.department === departmentSeed.name,
+    );
+
+    if (!managerDemoAccount) {
+      throw new Error(
+        `Konfigurasi akun manager ${departmentSeed.name} tidak tersedia.`,
+      );
+    }
+
+    await prisma.user.upsert({
+      where: { email: managerDemoAccount.email },
+      update: {
         departmentId: department.id,
         roleId: managerRole.id,
+        accountStatus: AccountStatus.AKTIF,
+      },
+      create: {
+        departmentId: department.id,
+        roleId: managerRole.id,
+        employeeNumber: `MGR-${departmentSeed.code}-001`,
+        name: `Manager ${departmentSeed.name}`,
+        email: managerDemoAccount.email,
+        passwordHash: hashPassword(managerPassword),
+        accountStatus: AccountStatus.AKTIF,
       },
     });
+  }
 
-    if (!existingManager) {
-      await prisma.user.create({
-        data: {
-          departmentId: department.id,
-          roleId: managerRole.id,
-          employeeNumber: `MGR-${departmentSeed.code}-001`,
-          name: `Manager ${departmentSeed.name}`,
-          email: `manager.${departmentSeed.code.toLowerCase()}@lakarya.local`,
-          passwordHash: hashPassword(managerPassword),
-          accountStatus: AccountStatus.AKTIF,
-        },
-      });
+  if (isDemoModeEnabled()) {
+    const itDepartment = await prisma.department.findUniqueOrThrow({
+      where: { name: 'Information Technology' },
+    });
+    const staffDemoAccount = demoAccounts.find(
+      (account) => account.persona === 'IT_STAFF',
+    );
+    const demoPassword =
+      process.env.SEED_DEMO_PASSWORD?.trim() || managerPassword;
+
+    if (!staffDemoAccount) {
+      throw new Error('Konfigurasi akun demo staf IT tidak tersedia.');
     }
+
+    await prisma.user.upsert({
+      where: { email: staffDemoAccount.email },
+      update: {
+        departmentId: itDepartment.id,
+        roleId: staffRole.id,
+        accountStatus: AccountStatus.AKTIF,
+      },
+      create: {
+        departmentId: itDepartment.id,
+        roleId: staffRole.id,
+        employeeNumber: 'STF-IT-001',
+        name: 'Staf Demo IT',
+        email: staffDemoAccount.email,
+        passwordHash: hashPassword(demoPassword),
+        accountStatus: AccountStatus.AKTIF,
+      },
+    });
   }
 }
 

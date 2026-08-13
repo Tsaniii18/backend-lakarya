@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   Headers,
   HttpCode,
   HttpStatus,
@@ -12,6 +13,7 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { AuthenticatedRequest } from './auth.types';
+import { DemoLoginDto } from './dto/demo-login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -37,6 +39,22 @@ export class AuthController {
     @Headers('sec-ch-ua-platform') device?: string,
   ) {
     return this.authService.login(dto, { ip, agent, device });
+  }
+
+  @Get('demo')
+  getDemoAccess() {
+    return this.authService.getDemoAccess();
+  }
+
+  @Post('demo-login')
+  @HttpCode(HttpStatus.OK)
+  demoLogin(
+    @Body() dto: DemoLoginDto,
+    @Ip() ip: string,
+    @Headers('user-agent') agent?: string,
+    @Headers('sec-ch-ua-platform') device?: string,
+  ) {
+    return this.authService.demoLogin(dto, { ip, agent, device });
   }
 
   @Post('logout')

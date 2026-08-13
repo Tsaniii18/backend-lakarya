@@ -10,6 +10,7 @@ import {
   RequestType,
 } from '../generated/prisma/client';
 import { ApprovalService } from '../approval/approval.service';
+import { NotificationService } from '../common/notifications/notification.service';
 import { ListRequestsQueryDto } from '../leave/dto/list-requests-query.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { parsePositiveNumber } from '../users/utils/parse-positive-number';
@@ -20,6 +21,7 @@ export class PermissionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly approvalService: ApprovalService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async create(userId: number, dto: CreatePermissionDto) {
@@ -104,6 +106,8 @@ export class PermissionService {
         },
       });
     });
+
+    await this.notificationService.notifyNewRequest(request.id);
 
     return {
       message: 'Pengajuan izin berhasil dibuat.',
